@@ -14,6 +14,8 @@ library(shiny)
 library(shinyjs)
 library(DT)
 library(dplyr)
+library(tidyr)
+library(stringr)
 library(purrr)
 library(haven)
 library(rlang)
@@ -368,6 +370,7 @@ server <- function(input, output, session) {
           options = list(
             pageLength = 10, 
             scrollX = TRUE, 
+            scrollY = "calc(100vh - 350px)",
             fixedHeader = TRUE,
             # FIX: Reinstated tooltip logic
             rowCallback = JS(
@@ -376,6 +379,9 @@ server <- function(input, output, session) {
               "  var tooltipMatrix = ", jsonlite::toJSON(res$tooltip_matrix, na = "null"), ";",
               "  for (var j=0; j < data.length; j++) {",
               "    var cell = $(row).find('td').eq(j);",
+              "    if (!cell.find('.cell-scroll').length) {",
+              "      cell.html('<div class=\"cell-scroll\" style=\"max-height:5em;; overflow:auto;\">' + cell.html() + '</div>');",
+              "    }",
               "    if (tooltipMatrix[index] && tooltipMatrix[index][j] !== null) {",
               "      cell.attr('data-bs-toggle', 'tooltip').attr('data-bs-html', 'true').attr('title', tooltipMatrix[index][j]);",
               "    }",
