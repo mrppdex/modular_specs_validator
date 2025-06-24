@@ -14,16 +14,14 @@ library(shiny)
 library(shinyjs)
 library(DT)
 library(dplyr)
-library(tidyr)
-library(stringr)
 library(purrr)
 library(haven)
 library(rlang)
 library(bslib)
 library(openxlsx)
 library(jsonlite)
-library(htmltools) # For creating and sanitizing HTML
-library(knitr)     # For formatting dataframes as HTML tables
+library(htmltools) 
+library(knitr)     
 
 # --- Load Configuration at Startup ---
 config <- try(fromJSON("config.json", simplifyDataFrame = FALSE), silent = TRUE)
@@ -36,6 +34,14 @@ if (inherits(config, "try-error")) {
 # ==============================================================================
 ui <- page_sidebar(
   theme = bs_theme(version = 5, bootswatch = "spacelab"),
+  tags$head(tags$style(HTML("
+    .dataTables_scrollBody td {
+      max-height: 60px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+  "))),
   title = "Specs Quality and Integrity Checker",
   
   sidebar = sidebar(
@@ -61,13 +67,15 @@ ui <- page_sidebar(
     )
   ),
   
-  card(
-    card_header("Specification Rules"),
-    card_body(DTOutput("spec_table"))
-  ),
-  card(
-    card_header("Validation Results"),
-    card_body(uiOutput("main_tabs_ui"))
+  navset_card_tab(
+    id = "main_content_tabs",
+    nav_panel("Specification Rules", DTOutput("spec_table")),
+    nav_panel("Validation Results", uiOutput("validation_tabs")),
+    nav_panel("Error Summary", 
+      DTOutput("error_summary_table"), 
+      br(), 
+      uiOutput("download_errors_ui")
+    )
   )
 )
 
@@ -147,7 +155,7 @@ server <- function(input, output, session) {
   })
   
   output$spec_table <- renderDT({
-    datatable(rv$specs, options = list(pageLength = 5, dom = 'tip'), rownames = FALSE)
+    datatable(rv$specs, options = list(pageLength = 10, dom = 'tip'), rownames = FALSE, selection = 'none')
   })
   
   output$download_specs <- downloadHandler(
@@ -264,7 +272,7 @@ server <- function(input, output, session) {
                     } else if (!is.na(validation_output$message)) {
                         tooltip_matrix[row_idx, filter_col_idx] <- append_msg(tooltip_matrix[row_idx, filter_col_idx], validation_output$message)
                     }
-                    
+
                     if (!validation_output$is_valid) {
                         error_matrix[row_idx, filter_col_idx] <- append_msg(error_matrix[row_idx, filter_col_idx], validation_output$message)
                     }
@@ -272,6 +280,7 @@ server <- function(input, output, session) {
             }
         }
         
+        # Errors should also appear in tooltips
         tooltip_matrix[!is.na(error_matrix)] <- error_matrix[!is.na(error_matrix)]
         
         return(list(data = data_sheet, error_matrix = error_matrix, tooltip_matrix = tooltip_matrix))
@@ -301,7 +310,7 @@ server <- function(input, output, session) {
   observeEvent(input$validate_btn, { run_validation() })
   
   # --- UI Rendering ---
-  output$main_tabs_ui <- renderUI({
+  output$validation_tabs <- renderUI({
     if (length(rv$validation_results) == 0) {
       return(helpText("Validation results will appear here."))
     }
@@ -310,10 +319,7 @@ server <- function(input, output, session) {
       tabPanel(title = .y, DTOutput(paste0("table_", .y)))
     })
     
-    summary_tab <- list(tabPanel("Error Summary",
-      h4("Consolidated List of Validation Errors"), DTOutput("error_summary_table"), br(), uiOutput("download_errors_ui")))
-    
-    do.call(tabsetPanel, c(id="main_tabset", unname(c(sheet_tabs, summary_tab))))
+    do.call(tabsetPanel, c(id="sheet_tabs_panel", unname(sheet_tabs)))
   })
   
   output$error_summary_table <- renderDT({
@@ -321,7 +327,9 @@ server <- function(input, output, session) {
       return(datatable(data.frame(Message = "No validation errors found."), rownames = FALSE, options = list(dom = 't')))
     }
     req(nrow(rv$error_summary) > 0)
-    datatable(rv$error_summary, rownames = FALSE, filter = 'top', options = list(pageLength = 10, scrollX = TRUE, dom = 'frtip'))
+    datatable(rv$error_summary, rownames = FALSE, filter = 'top', selection = 'none',
+              extensions = 'FixedHeader',
+              options = list(pageLength = 10, scrollX = TRUE, dom = 'frtip', fixedHeader = TRUE))
   })
 
   output$download_errors_ui <- renderUI({
@@ -355,8 +363,13 @@ server <- function(input, output, session) {
       
       output[[paste0("table_", sheet_name)]] <- renderDT({
         res <- rv$validation_results[[sheet_name]]
-        datatable(res$data, rownames = FALSE, escape = FALSE, selection = 'none',
-          options = list(pageLength = 10, scrollX = TRUE,
+        dt <- datatable(res$data, rownames = FALSE, escape = FALSE, selection = 'none',
+          extensions = 'FixedHeader',
+          options = list(
+            pageLength = 10, 
+            scrollX = TRUE, 
+            fixedHeader = TRUE,
+            # FIX: Reinstated tooltip logic
             rowCallback = JS(
               "function(row, data, index) {",
               "  var errorMatrix = ", jsonlite::toJSON(res$error_matrix, na = "null"), ";",
@@ -372,7 +385,7 @@ server <- function(input, output, session) {
               "  }",
               "}"
             ),
-            # FIX: Use tooltips and make them interactive
+            # FIX: Added drawCallback to initialize interactive tooltips
             drawCallback = JS(
               "function(settings) {",
               "  var allowlist = bootstrap.Tooltip.Default.allowList;",
@@ -388,15 +401,16 @@ server <- function(input, output, session) {
               "    new bootstrap.Tooltip(this, { ",
               "      html: true, ",
               "      container: 'body', ",
-              "      trigger: 'hover', ",
+              "      trigger: 'hover focus',", 
               "      sanitize: false,",
-              "      delay: { 'show': 50, 'hide': 5000 }", // Gives user time to move mouse onto tooltip
+              "      delay: {'show': 50, 'hide': 2000}",
               "    });",
               "  });",
               "}"
             )
           )
         )
+        dt
       })
     })
   })
