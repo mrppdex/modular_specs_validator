@@ -23,7 +23,8 @@ library(bslib)
 library(openxlsx)
 library(jsonlite)
 library(htmltools) 
-library(knitr)     
+library(knitr)
+library(textclean)     
 
 # --- Load Configuration at Startup ---
 config <- try(fromJSON("config.json", simplifyDataFrame = FALSE), silent = TRUE)
@@ -234,7 +235,7 @@ server <- function(input, output, session) {
 
                 for (row_idx in 1:nrow(data_sheet)) {
                     path_value <- data_sheet[[path_col_name]][row_idx]
-                    json_str <- data_sheet[[filter_col_name]][row_idx]
+                    json_str <- replace_html(data_sheet[[filter_col_name]][row_idx])
                     
                     if (is.na(path_value) || path_value == "" || is.na(json_str) || json_str == "") next
 
