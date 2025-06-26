@@ -7,7 +7,7 @@
 # 4. Create a sub-folder named 'modules'.
 # 5. Save your validation function scripts inside 'modules'.
 # 6. Install required packages:
-#    install.packages(c("shiny", "shinyjs", "DT", "dplyr", "purrr", "haven", "rlang", "bslib", "openxlsx", "jsonlite", "htmltools", "knitr"))
+#    install.packages(c("shiny", "shinyjs", "DT", "dplyr", "purrr", "haven", "rlang", "bslib", "openxlsx", "jsonlite", "htmltools", "knitr", "rmarkdown"))
 # 7. Run the app from the project root directory.
 
 library(shiny)
@@ -24,7 +24,7 @@ library(openxlsx)
 library(jsonlite)
 library(htmltools) 
 library(knitr)
-library(textclean)     
+library(rmarkdown) # For document previews
 
 # --- Load Configuration at Startup ---
 config <- try(fromJSON("config.json", simplifyDataFrame = FALSE), silent = TRUE)
@@ -43,6 +43,9 @@ ui <- page_sidebar(
       overflow-y: auto;
       white-space: pre-wrap;
       word-wrap: break-word;
+    }
+    .popover {
+      max-width: 800px !important;
     }
   "))),
   title = "Specs Quality and Integrity Checker",
@@ -197,8 +200,9 @@ server <- function(input, output, session) {
         data_sheet <- rv$uploaded_excel_data[[sheet_name]]
         
         error_matrix <- matrix(NA_character_, nrow = nrow(data_sheet), ncol = ncol(data_sheet))
-        tooltip_matrix <- matrix(NA_character_, nrow = nrow(data_sheet), ncol = ncol(data_sheet))
-        colnames(error_matrix) <- colnames(tooltip_matrix) <- colnames(data_sheet)
+        popover_content_matrix <- matrix(NA_character_, nrow = nrow(data_sheet), ncol = ncol(data_sheet))
+        popover_title_matrix <- matrix(NA_character_, nrow = nrow(data_sheet), ncol = ncol(data_sheet))
+        colnames(error_matrix) <- colnames(popover_content_matrix) <- colnames(popover_title_matrix) <- colnames(data_sheet)
         
         append_msg <- function(existing_msg, new_msg) {
           if (is.na(existing_msg)) return(new_msg) else paste(existing_msg, new_msg, sep = " | ")
@@ -223,6 +227,21 @@ server <- function(input, output, session) {
                         validation_output <- source("modules/standard_validators.R")$value(value, rule)
                         if (!validation_output$is_valid) {
                             error_matrix[row_idx, col_idx] <- append_msg(error_matrix[row_idx, col_idx], validation_output$message)
+                        } else {
+                            # NEW: Check for document previews on valid file paths
+                            if (rule$Type == "File Path" && !is.na(value) && value != "") {
+                                ext <- tolower(tools::file_ext(value))
+                                if (ext %in% c("docx", "doc", "rtf") && file.exists(value)) {
+                                    html_file <- tempfile(fileext = ".html")
+                                    try(pandoc_convert(value, to = "html", output = html_file, options = c("--standalone")), silent = TRUE)
+                                    if(file.exists(html_file)){
+                                        preview_html <- paste(readLines(html_file), collapse="\n")
+                                        wrapper_div <- as.character(tags$div(style = "max-width: 800px; max-height: 500px; overflow: auto;", HTML(preview_html)))
+                                        popover_content_matrix[row_idx, col_idx] <- append_msg(popover_content_matrix[row_idx, col_idx], wrapper_div)
+                                        popover_title_matrix[row_idx, col_idx] <- append_msg(popover_title_matrix[row_idx, col_idx], "Document Preview")
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -235,7 +254,7 @@ server <- function(input, output, session) {
 
                 for (row_idx in 1:nrow(data_sheet)) {
                     path_value <- data_sheet[[path_col_name]][row_idx]
-                    json_str <- replace_html(data_sheet[[filter_col_name]][row_idx])
+                    json_str <- data_sheet[[filter_col_name]][row_idx]
                     
                     if (is.na(path_value) || path_value == "" || is.na(json_str) || json_str == "") next
 
@@ -271,9 +290,11 @@ server <- function(input, output, session) {
                     if(is.data.frame(validation_output$message)) {
                         html_table <- knitr::kable(validation_output$message, format = "html", table.attr = "class='table table-sm table-bordered' style='margin-bottom:0;'")
                         wrapper_div <- as.character(tags$div(style = "max-width: 800px; max-height: 400px; overflow: auto; background-color: white; color: black;", HTML(html_table)))
-                        tooltip_matrix[row_idx, filter_col_idx] <- append_msg(tooltip_matrix[row_idx, filter_col_idx], wrapper_div)
+                        popover_content_matrix[row_idx, filter_col_idx] <- append_msg(popover_content_matrix[row_idx, filter_col_idx], wrapper_div)
+                        popover_title_matrix[row_idx, filter_col_idx] <- append_msg(popover_title_matrix[row_idx, filter_col_idx], "Data Check Result")
                     } else if (!is.na(validation_output$message)) {
-                        tooltip_matrix[row_idx, filter_col_idx] <- append_msg(tooltip_matrix[row_idx, filter_col_idx], validation_output$message)
+                        popover_content_matrix[row_idx, filter_col_idx] <- append_msg(popover_content_matrix[row_idx, filter_col_idx], validation_output$message)
+                        popover_title_matrix[row_idx, filter_col_idx] <- append_msg(popover_title_matrix[row_idx, filter_col_idx], "Validation Info")
                     }
 
                     if (!validation_output$is_valid) {
@@ -283,10 +304,7 @@ server <- function(input, output, session) {
             }
         }
         
-        # Errors should also appear in tooltips
-        tooltip_matrix[!is.na(error_matrix)] <- error_matrix[!is.na(error_matrix)]
-        
-        return(list(data = data_sheet, error_matrix = error_matrix, tooltip_matrix = tooltip_matrix))
+        return(list(data = data_sheet, error_matrix = error_matrix, popover_content = popover_content_matrix, popover_title = popover_title_matrix))
       })
     }) 
     
@@ -371,20 +389,21 @@ server <- function(input, output, session) {
           options = list(
             pageLength = 10, 
             scrollX = TRUE, 
-            scrollY = "calc(100vh - 350px)",
+            scrollY = "calc(100vh - 400px)",
             fixedHeader = TRUE,
-            # FIX: Reinstated tooltip logic
             rowCallback = JS(
               "function(row, data, index) {",
               "  var errorMatrix = ", jsonlite::toJSON(res$error_matrix, na = "null"), ";",
-              "  var tooltipMatrix = ", jsonlite::toJSON(res$tooltip_matrix, na = "null"), ";",
+              "  var popoverContentMatrix = ", jsonlite::toJSON(res$popover_content, na = "null"), ";",
+              "  var popoverTitleMatrix = ", jsonlite::toJSON(res$popover_title, na = "null"), ";",
               "  for (var j=0; j < data.length; j++) {",
               "    var cell = $(row).find('td').eq(j);",
-              "    if (!cell.find('.cell-scroll').length) {",
-              "      cell.html('<div class=\"cell-scroll\" style=\"max-height:5em;; overflow:auto;\">' + cell.html() + '</div>');",
-              "    }",
-              "    if (tooltipMatrix[index] && tooltipMatrix[index][j] !== null) {",
-              "      cell.attr('data-bs-toggle', 'tooltip').attr('data-bs-html', 'true').attr('title', tooltipMatrix[index][j]);",
+              "    if (popoverContentMatrix[index] && popoverContentMatrix[index][j] !== null) {",
+              "      $(cell).attr('data-bs-toggle', 'popover')",
+              "             .attr('data-bs-html', 'true')",
+              "             .attr('data-bs-trigger', 'click')",
+              "             .attr('data-bs-title', popoverTitleMatrix[index][j])",
+              "             .attr('data-bs-content', popoverContentMatrix[index][j]);",
               "    }",
               "    if (errorMatrix[index] && errorMatrix[index][j] !== null) {",
               "      cell.css('background-color', 'rgba(255, 135, 135, 0.7)');",
@@ -392,26 +411,22 @@ server <- function(input, output, session) {
               "  }",
               "}"
             ),
-            # FIX: Added drawCallback to initialize interactive tooltips
             drawCallback = JS(
               "function(settings) {",
-              "  var allowlist = bootstrap.Tooltip.Default.allowList;",
+              "  var allowlist = bootstrap.Popover.Default.allowList;",
               "  allowlist.table = []; allowlist.thead = []; allowlist.tbody = []; allowlist.tr = [];",
               "  allowlist.td = ['style']; allowlist.th = ['style']; allowlist.div = ['style'];",
+              "  allowlist.p = []; allowlist.h1 = []; allowlist.h2 = []; allowlist.h3 = [];",
+              "  allowlist.ul = []; allowlist.ol = []; allowlist.li = [];",
+              "  allowlist.strong = []; allowlist.em = [];",
 
               "  var table = this.api().table();",
-              "  $(table.body()).find('[data-bs-toggle=\"tooltip\"]').each(function() {",
-              "    var tooltip = bootstrap.Tooltip.getInstance(this);",
-              "    if (tooltip) { tooltip.dispose(); }",
+              "  $(table.body()).find('[data-bs-toggle=\"popover\"]').each(function() {",
+              "    var popover = bootstrap.Popover.getInstance(this);",
+              "    if (popover) { popover.dispose(); }",
               "  });",
-              "  $(table.body()).find('[data-bs-toggle=\"tooltip\"]').each(function() {",
-              "    new bootstrap.Tooltip(this, { ",
-              "      html: true, ",
-              "      container: 'body', ",
-              "      trigger: 'hover focus',", 
-              "      sanitize: false,",
-              "      delay: {'show': 50, 'hide': 2000}",
-              "    });",
+              "  $(table.body()).find('[data-bs-toggle=\"popover\"]').each(function() {",
+              "    new bootstrap.Popover(this, { html: true, container: 'body', sanitize: false });",
               "  });",
               "}"
             )
