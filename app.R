@@ -7,7 +7,7 @@
 # 4. Create a sub-folder named 'modules'.
 # 5. Save your validation function scripts inside 'modules'.
 # 6. Install required packages:
-#    install.packages(c("shiny", "shinyjs", "DT", "dplyr", "purrr", "haven", "rlang", "bslib", "openxlsx", "jsonlite", "htmltools", "knitr", "rmarkdown"))
+#    install.packages(c("shiny", "shinyjs", "DT", "dplyr", "purrr", "haven", "rlang", "bslib", "openxlsx", "jsonlite", "htmltools", "knitr", "rmarkdown", "ggplot2", "plotly", "htmlwidgets", "textclean"))
 # 7. Make sure Pandoc is installed on the system running the app. It is usually installed with RStudio.
 # 8. Run the app from the project root directory.
 
@@ -27,6 +27,9 @@ library(htmltools)
 library(knitr)
 library(textclean)
 library(rmarkdown) # For document previews
+library(ggplot2)   # For ggplot visualizations
+library(plotly)    # For plotly visualizations
+library(htmlwidgets) # For saving widgets to HTML
 
 # --- Load Configuration at Startup ---
 config <- try(fromJSON("config.json", simplifyDataFrame = FALSE), silent = TRUE)
@@ -47,7 +50,7 @@ ui <- page_sidebar(
       word-wrap: break-word;
     }
     .popover {
-      max-width: 800px !important;
+      max-width: 850px !important; /* Increased for plots */
     }
     /* Ensure modal appears above everything */
     .modal {
@@ -243,26 +246,20 @@ server <- function(input, output, session) {
                         value <- data_sheet[[col_name]][row_idx]
                         validation_output <- source("modules/standard_validators.R")$value(value, rule)
                         if (!validation_output$is_valid) {
-                            # FIX: Populate both error and popover matrices on error
                             error_msg <- validation_output$message
                             error_matrix[row_idx, col_idx] <- append_msg(error_matrix[row_idx, col_idx], error_msg)
                             popover_content_matrix[row_idx, col_idx] <- append_msg(popover_content_matrix[row_idx, col_idx], error_msg)
                             popover_title_matrix[row_idx, col_idx] <- append_msg(popover_title_matrix[row_idx, col_idx], "Validation Error")
                         } else {
-                            # Check for documents and create a modal preview
                             if (rule$Type == "File Path" && !is.na(value) && value != "") {
                                 ext <- tolower(tools::file_ext(value))
-                                # Check if the file is a document type and exists on the server
                                 if (ext %in% c("docx", "doc", "rtf") && file.exists(value)) {
                                     html_file <- tempfile(fileext = ".html")
-                                    # Convert doc to HTML fragment using pandoc
                                     try(pandoc_convert(value, to = "html5", output = html_file), silent = TRUE)
                                     
                                     if(file.exists(html_file)){
                                         preview_html <- paste(readLines(html_file, warn=FALSE), collapse="\n")
                                         modal_id <- paste("preview-modal", make.names(sheet_name), row_idx, col_idx, sep="-")
-
-                                        # Create Bootstrap modal HTML
                                         modal_ui <- tags$div(
                                             class = "modal fade", id = modal_id, tabindex = "-1",
                                             `aria-labelledby` = paste0(modal_id, "-label"), `aria-hidden` = "true",
@@ -276,9 +273,7 @@ server <- function(input, output, session) {
                                                 )
                                             )
                                         )
-                                        all_modals[[modal_id]] <<- modal_ui # Use super-assignment to add to list outside map
-
-                                        # Create button to launch the modal
+                                        all_modals[[modal_id]] <<- modal_ui
                                         button_html <- as.character(tags$button(
                                             type = "button",
                                             class = "btn btn-sm btn-outline-secondary py-0",
@@ -286,7 +281,6 @@ server <- function(input, output, session) {
                                             `data-bs-target` = paste0("#", modal_id),
                                             "View Document"
                                         ))
-                                        # Add button to the render matrix
                                         render_matrix[row_idx, col_idx] <- paste(render_matrix[row_idx, col_idx], button_html, sep="<br>")
                                     }
                                 }
@@ -347,7 +341,36 @@ server <- function(input, output, session) {
                     validation_func <- module_env[[function_name]]
                     validation_output <- validation_func(path_value, json_params)
                     
-                    if(is.data.frame(validation_output$message)) {
+                    # --- MODIFIED: Handle plots, data frames, and text ---
+                    if (inherits(validation_output$message, "plotly") || inherits(validation_output$message, "htmlwidget")) {
+                        tmp_html <- tempfile(fileext = ".html")
+                        htmlwidgets::saveWidget(validation_output$message, tmp_html, selfcontained = TRUE)
+                        widget_html <- paste(readLines(tmp_html, warn = FALSE), collapse = "\n")
+                        wrapper_div <- as.character(tags$iframe(
+                            srcdoc = widget_html,
+                            style = "width: 750px; height: 450px; border: none;",
+                            seamless = "seamless"
+                        ))
+                        popover_content_matrix[row_idx, filter_col_idx] <- append_msg(popover_content_matrix[row_idx, filter_col_idx], wrapper_div)
+                        popover_title_matrix[row_idx, filter_col_idx] <- append_msg(popover_title_matrix[row_idx, filter_col_idx], "Plot Visualization")
+
+                    } else if (inherits(validation_output$message, "ggplot")) {
+                        tmp_file <- tempfile(fileext = ".png")
+                        tryCatch({
+                            ggsave(tmp_file, plot = validation_output$message, width = 7, height = 5, units = "in", dpi = 150)
+                            img_uri <- knitr::image_uri(tmp_file)
+                            wrapper_div <- as.character(tags$div(
+                                style = "max-width: 750px; max-height: 500px; overflow: auto;",
+                                tags$img(src = img_uri, style = "width: 100%; height: auto;")
+                            ))
+                            popover_content_matrix[row_idx, filter_col_idx] <- append_msg(popover_content_matrix[row_idx, filter_col_idx], wrapper_div)
+                            popover_title_matrix[row_idx, filter_col_idx] <- append_msg(popover_title_matrix[row_idx, filter_col_idx], "Plot Visualization")
+                        }, error = function(e) {
+                            err_msg <- paste("Failed to render ggplot:", e$message)
+                            popover_content_matrix[row_idx, filter_col_idx] <- append_msg(popover_content_matrix[row_idx, filter_col_idx], err_msg)
+                            popover_title_matrix[row_idx, filter_col_idx] <- append_msg(popover_title_matrix[row_idx, filter_col_idx], "Render Error")
+                        })
+                    } else if(is.data.frame(validation_output$message)) {
                         html_table <- knitr::kable(validation_output$message, format = "html", table.attr = "class='table table-sm table-bordered' style='margin-bottom:0;'")
                         wrapper_div <- as.character(tags$div(style = "max-width: 800px; max-height: 400px; overflow: auto; background-color: white; color: black;", HTML(html_table)))
                         popover_content_matrix[row_idx, filter_col_idx] <- append_msg(popover_content_matrix[row_idx, filter_col_idx], wrapper_div)
@@ -358,13 +381,13 @@ server <- function(input, output, session) {
                     }
 
                     if (!validation_output$is_valid) {
-                        # IMPROVEMENT: Use a more descriptive error message in the error matrix
-                        error_msg <- "Complex validation failed." # Default message
+                        error_msg <- "Complex validation failed."
                         if(is.data.frame(validation_output$message) && nrow(validation_output$message) > 0) {
                             error_msg <- "Multiple issues found (see popover for details)."
                         } else if (is.character(validation_output$message) && !is.na(validation_output$message) && validation_output$message != "") {
-                            # Truncate long messages for the summary table; full message is in popover
                             error_msg <- str_trunc(validation_output$message, 100)
+                        } else if (inherits(validation_output$message, "ggplot") || inherits(validation_output$message, "plotly")) {
+                           error_msg <- "Validation produced a plot (see popover)."
                         }
                         error_matrix[row_idx, filter_col_idx] <- append_msg(error_matrix[row_idx, filter_col_idx], error_msg)
                     }
@@ -374,7 +397,7 @@ server <- function(input, output, session) {
         
         return(list(
             data = data_sheet,
-            render_matrix = render_matrix, # Return matrix with buttons for rendering
+            render_matrix = render_matrix,
             error_matrix = error_matrix,
             popover_content = popover_content_matrix,
             popover_title = popover_title_matrix
@@ -384,7 +407,7 @@ server <- function(input, output, session) {
     
     results <- results[!sapply(results, is.null)]
     rv$validation_results <- set_names(results, selected[selected %in% names(rv$uploaded_excel_data)])
-    rv$modal_htmls <- all_modals # Update reactive value with all modals from the run
+    rv$modal_htmls <- all_modals
 
     error_summary_df <- imap_dfr(rv$validation_results, ~{
       error_matrix <- .x$error_matrix
@@ -407,9 +430,7 @@ server <- function(input, output, session) {
   
   # --- UI Rendering ---
   
-  # Render the container that holds all modal dialogs
   output$modal_container <- renderUI({
-    # Render all modal dialogs, they will be hidden until triggered
     tagList(unname(rv$modal_htmls))
   })
 
@@ -466,7 +487,6 @@ server <- function(input, output, session) {
       
       output[[paste0("table_", sheet_name)]] <- renderDT({
         res <- rv$validation_results[[sheet_name]]
-        # Use the render_matrix which contains HTML buttons, and set escape=FALSE
         dt <- datatable(res$render_matrix, rownames = FALSE, escape = FALSE, selection = 'none',
           extensions = 'FixedHeader',
           options = list(
@@ -474,7 +494,6 @@ server <- function(input, output, session) {
             scrollX = TRUE,
             scrollY = "calc(100vh - 400px)",
             fixedHeader = TRUE,
-            # JS callbacks for popovers and cell coloring
             rowCallback = JS(
               "function(row, data, index) {",
               "  var errorMatrix = ", jsonlite::toJSON(res$error_matrix, na = "null"), ";",
@@ -482,9 +501,6 @@ server <- function(input, output, session) {
               "  var popoverTitleMatrix = ", jsonlite::toJSON(res$popover_title, na = "null"), ";",
               "  for (var j=0; j < data.length; j++) {",
               "    var cell = $(row).find('td').eq(j);",
-              "    if (!cell.find('.cell-scroll').length) {",
-              "      cell.html('<div class=\"cell-scroll\" style=\"max-height:5em;; overflow:auto;\">' + cell.html() + '</div>');",
-              "    }",
               "    if (popoverContentMatrix[index] && popoverContentMatrix[index][j] !== null) {",
               "      $(cell).attr('data-bs-toggle', 'popover')",
               "             .attr('data-bs-html', 'true')",
@@ -500,7 +516,6 @@ server <- function(input, output, session) {
             ),
             drawCallback = JS(
               "function(settings) {",
-              # Add all possible HTML tags from kable/pandoc to the popover allowlist
               "  var allowlist = bootstrap.Popover.Default.allowList;",
               "  allowlist.table = []; allowlist.thead = []; allowlist.tbody = []; allowlist.tr = [];",
               "  allowlist.td = ['style']; allowlist.th = ['style']; allowlist.div = ['style'];",
@@ -508,6 +523,9 @@ server <- function(input, output, session) {
               "  allowlist.ul = []; allowlist.ol = []; allowlist.li = [];",
               "  allowlist.strong = []; allowlist.em = [];",
               "  allowlist.br = [];",
+              // --- MODIFIED: Add iframe support for Plotly ---
+              "  allowlist.iframe = ['srcdoc', 'style', 'seamless', 'width', 'height', 'frameborder'];",
+              "  allowlist.img = ['src', 'style', 'width', 'height'];",
 
               "  var table = this.api().table();",
               "  $(table.body()).find('[data-bs-toggle=\"popover\"]').each(function() {",
