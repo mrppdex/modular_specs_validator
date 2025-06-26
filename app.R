@@ -243,9 +243,13 @@ server <- function(input, output, session) {
                         value <- data_sheet[[col_name]][row_idx]
                         validation_output <- source("modules/standard_validators.R")$value(value, rule)
                         if (!validation_output$is_valid) {
-                            error_matrix[row_idx, col_idx] <- append_msg(error_matrix[row_idx, col_idx], validation_output$message)
+                            # FIX: Populate both error and popover matrices on error
+                            error_msg <- validation_output$message
+                            error_matrix[row_idx, col_idx] <- append_msg(error_matrix[row_idx, col_idx], error_msg)
+                            popover_content_matrix[row_idx, col_idx] <- append_msg(popover_content_matrix[row_idx, col_idx], error_msg)
+                            popover_title_matrix[row_idx, col_idx] <- append_msg(popover_title_matrix[row_idx, col_idx], "Validation Error")
                         } else {
-                            # MODIFIED: Check for documents and create a modal preview
+                            # Check for documents and create a modal preview
                             if (rule$Type == "File Path" && !is.na(value) && value != "") {
                                 ext <- tolower(tools::file_ext(value))
                                 # Check if the file is a document type and exists on the server
@@ -306,18 +310,26 @@ server <- function(input, output, session) {
                     json_params <- try(fromJSON(json_str), silent = TRUE)
                     if(inherits(json_params, "try-error")) {
                         error_matrix[row_idx, filter_col_idx] <- append_msg(error_matrix[row_idx, filter_col_idx], "Invalid JSON format.")
+                        popover_content_matrix[row_idx, filter_col_idx] <- append_msg(popover_content_matrix[row_idx, filter_col_idx], "Invalid JSON format in cell.")
+                        popover_title_matrix[row_idx, filter_col_idx] <- append_msg(popover_title_matrix[row_idx, filter_col_idx], "Validation Error")
                         next
                     }
                     
                     function_name <- json_params$validation_module
                     if(is.null(function_name) || !function_name %in% names(config$function_mapping)) {
-                        error_matrix[row_idx, filter_col_idx] <- append_msg(error_matrix[row_idx, filter_col_idx], paste("Module", function_name, "not defined in config.json."))
+                        let_msg <- paste("Module", function_name, "not defined in config.json.")
+                        error_matrix[row_idx, filter_col_idx] <- append_msg(error_matrix[row_idx, filter_col_idx], let_msg)
+                        popover_content_matrix[row_idx, filter_col_idx] <- append_msg(popover_content_matrix[row_idx, filter_col_idx], let_msg)
+                        popover_title_matrix[row_idx, filter_col_idx] <- append_msg(popover_title_matrix[row_idx, filter_col_idx], "Configuration Error")
                         next
                     }
                     
                     module_path <- config$function_mapping[[function_name]]
                     if(!file.exists(module_path)) {
-                        error_matrix[row_idx, filter_col_idx] <- append_msg(error_matrix[row_idx, filter_col_idx], paste("Module file not found:", module_path))
+                        let_msg <- paste("Module file not found:", module_path)
+                        error_matrix[row_idx, filter_col_idx] <- append_msg(error_matrix[row_idx, filter_col_idx], let_msg)
+                        popover_content_matrix[row_idx, filter_col_idx] <- append_msg(popover_content_matrix[row_idx, filter_col_idx], let_msg)
+                        popover_title_matrix[row_idx, filter_col_idx] <- append_msg(popover_title_matrix[row_idx, filter_col_idx], "Configuration Error")
                         next
                     }
                     
@@ -325,7 +337,10 @@ server <- function(input, output, session) {
                     source(module_path, local = module_env)
                     
                     if(!exists(function_name, envir = module_env)) {
-                       error_matrix[row_idx, filter_col_idx] <- append_msg(error_matrix[row_idx, filter_col_idx], paste("Function", function_name, "not found in module", module_path))
+                       let_msg <- paste("Function", function_name, "not found in module", module_path)
+                       error_matrix[row_idx, filter_col_idx] <- append_msg(error_matrix[row_idx, filter_col_idx], let_msg)
+                       popover_content_matrix[row_idx, filter_col_idx] <- append_msg(popover_content_matrix[row_idx, filter_col_idx], let_msg)
+                       popover_title_matrix[row_idx, filter_col_idx] <- append_msg(popover_title_matrix[row_idx, filter_col_idx], "Configuration Error")
                        next
                     }
                     
@@ -337,13 +352,21 @@ server <- function(input, output, session) {
                         wrapper_div <- as.character(tags$div(style = "max-width: 800px; max-height: 400px; overflow: auto; background-color: white; color: black;", HTML(html_table)))
                         popover_content_matrix[row_idx, filter_col_idx] <- append_msg(popover_content_matrix[row_idx, filter_col_idx], wrapper_div)
                         popover_title_matrix[row_idx, filter_col_idx] <- append_msg(popover_title_matrix[row_idx, filter_col_idx], "Data Check Result")
-                    } else if (!is.na(validation_output$message)) {
+                    } else if (is.character(validation_output$message) && !is.na(validation_output$message) && validation_output$message != "") {
                         popover_content_matrix[row_idx, filter_col_idx] <- append_msg(popover_content_matrix[row_idx, filter_col_idx], validation_output$message)
                         popover_title_matrix[row_idx, filter_col_idx] <- append_msg(popover_title_matrix[row_idx, filter_col_idx], "Validation Info")
                     }
 
                     if (!validation_output$is_valid) {
-                        error_matrix[row_idx, filter_col_idx] <- append_msg(error_matrix[row_idx, filter_col_idx], "Validation failed (see popover for details).")
+                        # IMPROVEMENT: Use a more descriptive error message in the error matrix
+                        error_msg <- "Complex validation failed." # Default message
+                        if(is.data.frame(validation_output$message) && nrow(validation_output$message) > 0) {
+                            error_msg <- "Multiple issues found (see popover for details)."
+                        } else if (is.character(validation_output$message) && !is.na(validation_output$message) && validation_output$message != "") {
+                            # Truncate long messages for the summary table; full message is in popover
+                            error_msg <- str_trunc(validation_output$message, 100)
+                        }
+                        error_matrix[row_idx, filter_col_idx] <- append_msg(error_matrix[row_idx, filter_col_idx], error_msg)
                     }
                 }
             }
