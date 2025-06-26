@@ -8,7 +8,8 @@
 # 5. Save your validation function scripts inside 'modules'.
 # 6. Install required packages:
 #    install.packages(c("shiny", "shinyjs", "DT", "dplyr", "purrr", "haven", "rlang", "bslib", "openxlsx", "jsonlite", "htmltools", "knitr", "rmarkdown"))
-# 7. Run the app from the project root directory.
+# 7. Make sure Pandoc is installed on the system running the app. It is usually installed with RStudio.
+# 8. Run the app from the project root directory.
 
 library(shiny)
 library(shinyjs)
@@ -22,8 +23,9 @@ library(rlang)
 library(bslib)
 library(openxlsx)
 library(jsonlite)
-library(htmltools) 
+library(htmltools)
 library(knitr)
+library(textclean)
 library(rmarkdown) # For document previews
 
 # --- Load Configuration at Startup ---
@@ -47,6 +49,13 @@ ui <- page_sidebar(
     .popover {
       max-width: 800px !important;
     }
+    /* Ensure modal appears above everything */
+    .modal {
+      z-index: 2000 !important;
+    }
+    .modal-backdrop {
+      z-index: 1999 !important;
+    }
   "))),
   title = "Specs Quality and Integrity Checker",
   
@@ -56,7 +65,7 @@ ui <- page_sidebar(
       accordion_panel(
         "Step 1: Specifications",
         textInput("spec_col_name", "Column Name / Rule Name"),
-        selectInput("spec_col_type", "Data Type", 
+        selectInput("spec_col_type", "Data Type",
                     choices = setNames(map_chr(config$data_types, "id"), map_chr(config$data_types, "label"))),
         uiOutput("dynamic_spec_ui"),
         actionButton("add_spec", "Add Spec Rule", icon = icon("plus")),
@@ -77,12 +86,14 @@ ui <- page_sidebar(
     id = "main_content_tabs",
     nav_panel("Specification Rules", DTOutput("spec_table")),
     nav_panel("Validation Results", uiOutput("validation_tabs")),
-    nav_panel("Error Summary", 
-      DTOutput("error_summary_table"), 
-      br(), 
+    nav_panel("Error Summary",
+      DTOutput("error_summary_table"),
+      br(),
       uiOutput("download_errors_ui")
     )
-  )
+  ),
+  # Add a container for the dynamically generated modals
+  uiOutput("modal_container")
 )
 
 # ==============================================================================
@@ -94,7 +105,8 @@ server <- function(input, output, session) {
     specs = tibble(Name = character(), Type = character(), Values = character()),
     uploaded_excel_data = list(),
     validation_results = list(),
-    error_summary = tibble()
+    error_summary = tibble(),
+    modal_htmls = list() # To store UI for document preview modals
   )
   
   # --- Dynamic UI Generation ---
@@ -192,12 +204,17 @@ server <- function(input, output, session) {
     
     selected <- input$selected_sheets
     specs <- rv$specs
+    all_modals <- list() # Store modals for all sheets in this run
     
     withProgress(message = 'Validating data...', value = 0, {
       results <- map(selected, function(sheet_name) {
         if (!sheet_name %in% names(rv$uploaded_excel_data)) return(NULL)
         incProgress(1/length(selected), detail = paste("Processing sheet:", sheet_name))
         data_sheet <- rv$uploaded_excel_data[[sheet_name]]
+        
+        # Create a character matrix for rendering, escaping original data to prevent XSS
+        render_matrix <- as.data.frame(lapply(data_sheet, function(c) htmltools::htmlEscape(as.character(c))), stringsAsFactors = FALSE)
+        colnames(render_matrix) <- colnames(data_sheet)
         
         error_matrix <- matrix(NA_character_, nrow = nrow(data_sheet), ncol = ncol(data_sheet))
         popover_content_matrix <- matrix(NA_character_, nrow = nrow(data_sheet), ncol = ncol(data_sheet))
@@ -228,17 +245,45 @@ server <- function(input, output, session) {
                         if (!validation_output$is_valid) {
                             error_matrix[row_idx, col_idx] <- append_msg(error_matrix[row_idx, col_idx], validation_output$message)
                         } else {
-                            # NEW: Check for document previews on valid file paths
+                            # MODIFIED: Check for documents and create a modal preview
                             if (rule$Type == "File Path" && !is.na(value) && value != "") {
                                 ext <- tolower(tools::file_ext(value))
+                                # Check if the file is a document type and exists on the server
                                 if (ext %in% c("docx", "doc", "rtf") && file.exists(value)) {
                                     html_file <- tempfile(fileext = ".html")
-                                    try(pandoc_convert(value, to = "html", output = html_file, options = c("--standalone")), silent = TRUE)
+                                    # Convert doc to HTML fragment using pandoc
+                                    try(pandoc_convert(value, to = "html5", output = html_file), silent = TRUE)
+                                    
                                     if(file.exists(html_file)){
-                                        preview_html <- paste(readLines(html_file), collapse="\n")
-                                        wrapper_div <- as.character(tags$div(style = "max-width: 800px; max-height: 500px; overflow: auto;", HTML(preview_html)))
-                                        popover_content_matrix[row_idx, col_idx] <- append_msg(popover_content_matrix[row_idx, col_idx], wrapper_div)
-                                        popover_title_matrix[row_idx, col_idx] <- append_msg(popover_title_matrix[row_idx, col_idx], "Document Preview")
+                                        preview_html <- paste(readLines(html_file, warn=FALSE), collapse="\n")
+                                        modal_id <- paste("preview-modal", make.names(sheet_name), row_idx, col_idx, sep="-")
+
+                                        # Create Bootstrap modal HTML
+                                        modal_ui <- tags$div(
+                                            class = "modal fade", id = modal_id, tabindex = "-1",
+                                            `aria-labelledby` = paste0(modal_id, "-label"), `aria-hidden` = "true",
+                                            tags$div(class = "modal-dialog modal-xl modal-dialog-scrollable",
+                                                tags$div(class = "modal-content",
+                                                    tags$div(class = "modal-header",
+                                                        tags$h5(class = "modal-title", id = paste0(modal_id, "-label"), basename(value)),
+                                                        tags$button(type = "button", class = "btn-close", `data-bs-dismiss` = "modal", `aria-label` = "Close")
+                                                    ),
+                                                    tags$div(class = "modal-body", HTML(preview_html))
+                                                )
+                                            )
+                                        )
+                                        all_modals[[modal_id]] <<- modal_ui # Use super-assignment to add to list outside map
+
+                                        # Create button to launch the modal
+                                        button_html <- as.character(tags$button(
+                                            type = "button",
+                                            class = "btn btn-sm btn-outline-secondary py-0",
+                                            `data-bs-toggle` = "modal",
+                                            `data-bs-target` = paste0("#", modal_id),
+                                            "View Document"
+                                        ))
+                                        # Add button to the render matrix
+                                        render_matrix[row_idx, col_idx] <- paste(render_matrix[row_idx, col_idx], button_html, sep="<br>")
                                     }
                                 }
                             }
@@ -254,7 +299,7 @@ server <- function(input, output, session) {
 
                 for (row_idx in 1:nrow(data_sheet)) {
                     path_value <- data_sheet[[path_col_name]][row_idx]
-                    json_str <- data_sheet[[filter_col_name]][row_idx]
+                    json_str <- replace_html(data_sheet[[filter_col_name]][row_idx])
                     
                     if (is.na(path_value) || path_value == "" || is.na(json_str) || json_str == "") next
 
@@ -298,29 +343,36 @@ server <- function(input, output, session) {
                     }
 
                     if (!validation_output$is_valid) {
-                        error_matrix[row_idx, filter_col_idx] <- append_msg(error_matrix[row_idx, filter_col_idx], validation_output$message)
+                        error_matrix[row_idx, filter_col_idx] <- append_msg(error_matrix[row_idx, filter_col_idx], "Validation failed (see popover for details).")
                     }
                 }
             }
         }
         
-        return(list(data = data_sheet, error_matrix = error_matrix, popover_content = popover_content_matrix, popover_title = popover_title_matrix))
+        return(list(
+            data = data_sheet,
+            render_matrix = render_matrix, # Return matrix with buttons for rendering
+            error_matrix = error_matrix,
+            popover_content = popover_content_matrix,
+            popover_title = popover_title_matrix
+        ))
       })
-    }) 
+    }) # End withProgress
     
     results <- results[!sapply(results, is.null)]
     rv$validation_results <- set_names(results, selected[selected %in% names(rv$uploaded_excel_data)])
+    rv$modal_htmls <- all_modals # Update reactive value with all modals from the run
 
     error_summary_df <- imap_dfr(rv$validation_results, ~{
-        error_matrix <- .x$error_matrix
-        error_indices <- which(!is.na(error_matrix), arr.ind = TRUE)
-        if(nrow(error_indices) > 0) {
-          map_dfr(1:nrow(error_indices), function(i) {
-            row_idx <- error_indices[i, "row"]; col_idx <- error_indices[i, "col"]
-            tibble(Sheet = .y, Row = row_idx, Column = colnames(.x$data)[col_idx],
-                   Value = as.character(.x$data[row_idx, col_idx]), Reason = error_matrix[row_idx, col_idx])
-          })
-        } else { tibble() }
+      error_matrix <- .x$error_matrix
+      error_indices <- which(!is.na(error_matrix), arr.ind = TRUE)
+      if(nrow(error_indices) > 0) {
+        map_dfr(1:nrow(error_indices), function(i) {
+          row_idx <- error_indices[i, "row"]; col_idx <- error_indices[i, "col"]
+          tibble(Sheet = .y, Row = row_idx, Column = colnames(.x$data)[col_idx],
+                 Value = as.character(.x$data[row_idx, col_idx]), Reason = error_matrix[row_idx, col_idx])
+        })
+      } else { tibble() }
     })
     rv$error_summary <- error_summary_df
 
@@ -331,6 +383,13 @@ server <- function(input, output, session) {
   observeEvent(input$validate_btn, { run_validation() })
   
   # --- UI Rendering ---
+  
+  # Render the container that holds all modal dialogs
+  output$modal_container <- renderUI({
+    # Render all modal dialogs, they will be hidden until triggered
+    tagList(unname(rv$modal_htmls))
+  })
+
   output$validation_tabs <- renderUI({
     if (length(rv$validation_results) == 0) {
       return(helpText("Validation results will appear here."))
@@ -377,20 +436,22 @@ server <- function(input, output, session) {
     }
   )
   
-  # --- Dynamic Observers ---
+  # --- Dynamic Observers for DT tables ---
   observe({
     req(length(rv$validation_results) > 0)
     walk(names(rv$validation_results), function(sheet_name) {
       
       output[[paste0("table_", sheet_name)]] <- renderDT({
         res <- rv$validation_results[[sheet_name]]
-        dt <- datatable(res$data, rownames = FALSE, escape = FALSE, selection = 'none',
+        # Use the render_matrix which contains HTML buttons, and set escape=FALSE
+        dt <- datatable(res$render_matrix, rownames = FALSE, escape = FALSE, selection = 'none',
           extensions = 'FixedHeader',
           options = list(
-            pageLength = 10, 
-            scrollX = TRUE, 
+            pageLength = 10,
+            scrollX = TRUE,
             scrollY = "calc(100vh - 400px)",
             fixedHeader = TRUE,
+            # JS callbacks for popovers and cell coloring
             rowCallback = JS(
               "function(row, data, index) {",
               "  var errorMatrix = ", jsonlite::toJSON(res$error_matrix, na = "null"), ";",
@@ -413,12 +474,14 @@ server <- function(input, output, session) {
             ),
             drawCallback = JS(
               "function(settings) {",
+              # Add all possible HTML tags from kable/pandoc to the popover allowlist
               "  var allowlist = bootstrap.Popover.Default.allowList;",
               "  allowlist.table = []; allowlist.thead = []; allowlist.tbody = []; allowlist.tr = [];",
               "  allowlist.td = ['style']; allowlist.th = ['style']; allowlist.div = ['style'];",
               "  allowlist.p = []; allowlist.h1 = []; allowlist.h2 = []; allowlist.h3 = [];",
               "  allowlist.ul = []; allowlist.ol = []; allowlist.li = [];",
               "  allowlist.strong = []; allowlist.em = [];",
+              "  allowlist.br = [];",
 
               "  var table = this.api().table();",
               "  $(table.body()).find('[data-bs-toggle=\"popover\"]').each(function() {",
@@ -439,4 +502,3 @@ server <- function(input, output, session) {
 }
 
 shinyApp(ui = ui, server = server)
-
