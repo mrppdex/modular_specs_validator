@@ -69,7 +69,7 @@ perform_ards_check <- function(path, params) {
     }
     
     filter_expr   <- rlang::parse_expr(filter_query)
-    general_query <- gsub(paste0(ref_column, "\\s*==\\s['\"].+?['\"]"), 'TRUE', filter_query)
+    general_query <- gsub(paste0(ref_column, "\\s*==\\s*['\"].+?['\"]"), 'TRUE', filter_query)
     general_expr  <- rlang::parse_expr(sprintf("%s & %s==''", general_query, ref_column))
     
     p1 <-
@@ -94,7 +94,6 @@ perform_ards_check <- function(path, params) {
       pivot_wider(id_cols=!!trt_column, names_from=!!resulttype_column, values_from=!!result_column) %>%
       select_at(c(trt_column, difference_measure, difference_lci, difference_uci)) %>%
       rename(
-        trt_name        := !!trt_column,
         effect_estimate := !!difference_measure,
         effect_lower_ci := !!difference_lci,
         effect_upper_ci := !!difference_uci
