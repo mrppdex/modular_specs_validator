@@ -68,18 +68,23 @@ perform_ards_check <- function(path, params) {
                    paste(unique(ards_data[[resulttype_column]][ards_data[[ref_column]]!=""]), collaspe=', ')))
     }
     
+    filter_expr   <- rlang::parse_expr(filter_query)
+    general_query <- gsub(paste0(ref_column, "\\s*==\\s['\"].+?['\"]"), 'TRUE', filter_query)
+    general_expr  <- rlang::parse_expr(sprintf("%s & %s==''", general_query, ref_column))
+    
     p1 <-
-      ards_dat %>%
+      ards_data %>%
       filter(!!general_expr) %>%
       select_at(unique(c(trt_column, resulttype_column, result_column))) %>%
       filter(.data[[resulttype_column]] %in% c(measure)) %>%
       pivot_wider(id_cols=!!trt_column, names_from=!!resulttype_column, values_from=!!result_column) %>%
       select_at(c(trt_column, measure)) %>%
-      rename(
-        trt_value := !!measure
-      ) %>%
       mutate(
-        cmp_value = trt_value[.data[[trt_column]]==cmp_name]
+        cmp_value = .data[[measure]][.data[[trt_column]]==cmp_name]
+      ) %>% 
+      rename(
+        trt_name  := !!trt_column,
+        trt_value := !!measure
       )
     
     ards_data %>%
