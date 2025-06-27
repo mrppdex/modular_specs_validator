@@ -71,7 +71,8 @@
     }
   ],
   "function_mapping": {
-    "perform_ards_check": "modules/perform_ards_check.R",
-    "perform_rabbit_check": "modules/perform_rabbit_check.R"
+    "br check": "modules/perform_ards_check.R",
+    "forest plot": "modules/plot_effect.R",
+    "volcano plot": "modules/volcano_plot.R"
   }
 }
