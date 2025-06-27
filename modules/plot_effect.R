@@ -42,33 +42,33 @@ plot_effect <- function(path, params) {
 
   df_result <- tryCatch({
     ards_data <- ards_data %>% rename_all(tolower)
-
+    
     # in the filter query replace all variable with their lowercase versions
     filter_query_masked <- str_replace_all(filter_query, "'[^']*'|\"[^\"]*\"", "__STRING__")
     regex_pattern       <- '\\b[[:alnum:]_\\.]+(?=\\s*(==|!=|<=|>=|<|>|%IN%|%in%|%In%))'
     vars <- str_extract_all(filter_query_masked, regex_pattern)[[1]]
-
+    
     for (v in unique(vars)) {
       filter_query <- str_replace_all(filter_query,
                                       paste0('\\b', v, '\\b(?=\\s*(==|!=|<=|>=|<|>|%IN%|%in%|%In%))'),
                                       tolower(v))
     }
-
+    
     if (!measure %in% unique(ards_data[[resulttype_column]][ards_data[[ref_column]]==""])) {
-      stop(sprintf("Measure %s not in [%s]\n",
-                   measure,
+      stop(sprintf("Measure %s not in [%s]\n", 
+                   measure, 
                    paste(unique(ards_data[[resulttype_column]][ards_data[[ref_column]]==""]), collapse=', ')))
     }
-
+    
     if (!all(c(difference_measure, difference_lci, difference_uci) %in% unique(ards_data[[resulttype_column]][ards_data[[ref_column]]!=""]))) {
       stop(sprintf("Difference Measure (or CIs) not in [%s]\n",
                    paste(unique(ards_data[[resulttype_column]][ards_data[[ref_column]]!=""]), collaspe=', ')))
     }
-
+    
     filter_expr   <- rlang::parse_expr(filter_query)
-    general_query <- gsub(paste0(ref_column, "\s*==\s*['\"].+?['\"]"), 'TRUE', filter_query)
+    general_query <- gsub(paste0(ref_column, "\\s*==\\s['\"].+?['\"]"), 'TRUE', filter_query)
     general_expr  <- rlang::parse_expr(sprintf("%s & %s==''", general_query, ref_column))
-
+    
     p1 <-
       ards_data %>%
       filter(!!general_expr) %>%
@@ -76,14 +76,13 @@ plot_effect <- function(path, params) {
       filter(.data[[resulttype_column]] %in% c(measure)) %>%
       pivot_wider(id_cols=!!trt_column, names_from=!!resulttype_column, values_from=!!result_column) %>%
       select_at(c(trt_column, measure)) %>%
+      rename(
+        trt_value := !!measure
+      ) %>%
       mutate(
         cmp_value = .data[[measure]][.data[[trt_column]]==cmp_name]
-      ) %>%
-      rename(
-        trt_name  := !!trt_column,
-        trt_value := !!measure
-      )
-
+      ) 
+    
     ards_data %>%
       filter(!!filter_expr) %>%
       filter(.data[[ref_column]]==!!cmp_name) %>%
@@ -98,10 +97,11 @@ plot_effect <- function(path, params) {
         effect_upper_ci := !!difference_uci
       ) %>%
       left_join(p1) %>%
+      rename(trt_name := !!trt_column) %>%
       mutate(cmp_name=!!cmp_name) %>%
       select(cmp_name, cmp_value, trt_name, trt_value, effect_estimate, effect_lower_ci, effect_upper_ci) %>%
       filter(trt_name!=!!cmp_name)
-
+    
   }, error = function(e) {
     return(list(is_valid = FALSE, message = paste("Error during data extraction/filtering:", e$message)))
   })
