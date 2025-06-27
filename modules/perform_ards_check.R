@@ -79,13 +79,12 @@ perform_ards_check <- function(path, params) {
       filter(.data[[resulttype_column]] %in% c(measure)) %>%
       pivot_wider(id_cols=!!trt_column, names_from=!!resulttype_column, values_from=!!result_column) %>%
       select_at(c(trt_column, measure)) %>%
+      rename(
+        trt_value := !!measure
+      ) %>%
       mutate(
         cmp_value = .data[[measure]][.data[[trt_column]]==cmp_name]
-      ) %>% 
-      rename(
-        trt_name  := !!trt_column,
-        trt_value := !!measure
-      )
+      ) 
     
     ards_data %>%
       filter(!!filter_expr) %>%
@@ -101,6 +100,7 @@ perform_ards_check <- function(path, params) {
         effect_upper_ci := !!difference_uci
       ) %>%
       left_join(p1) %>%
+      rename(trt_name := !!trt_column) %>%
       mutate(cmp_name=!!cmp_name) %>%
       select(cmp_name, cmp_value, trt_name, trt_value, effect_estimate, effect_lower_ci, effect_upper_ci) %>%
       filter(trt_name!=!!cmp_name)
