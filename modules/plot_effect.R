@@ -1,0 +1,137 @@
+# This module creates a forest plot from a given dataset.
+# The function name must match the name specified in your JSON filter and config.json.
+# It must accept 'path' and 'params' (the parsed JSON) as arguments.
+# It must return a list with is_valid = TRUE/FALSE and a message.
+# The message on success will be a ggplot object.
+
+plot_effect <- function(path, params) {
+
+  # --- 1. File and Parameter Validation ---
+  if (is.null(params$filter)) {
+    return(list(is_valid = FALSE, message = "JSON is missing the required 'filter' key."))
+  }
+
+  if (!file.exists(path)) {
+    return(list(is_valid = FALSE, message = paste("Data file not found at:", path)))
+  }
+
+  # --- 2. Data Loading ---
+  ards_data <- tryCatch({
+    ext <- tools::file_ext(path)
+    if (ext == "sas7bdat") haven::read_sas(path)
+    else if (ext == "csv") read.csv(path, stringsAsFactors = FALSE)
+    else stop(paste("Unsupported file type:", ext))
+  }, error = function(e) {
+    return(list(is_valid = FALSE, message = paste("Error reading data file:", e$message)))
+  })
+  if (!is.data.frame(ards_data)) return(ards_data)
+
+  # --- 3. Business Logic (Data Extraction from perform_ards_check) ---
+
+  # Extract params from JSON, providing defaults
+  filter_query         <- params$filter %||% "TRUE"
+  measure              <- params$measure %||% NA
+  difference_measure   <- params$difference_measure %||% NA
+  difference_lci       <- params$difference_lci %||% NA
+  difference_uci       <- params$difference_uci %||% NA
+  cmp_name             <- params$cmp_name %||% "Placebo"
+  ref_column           <- tolower(params$ref_column) %||% "reftrt"
+  trt_column           <- tolower(params$trt_column) %||% "trt"
+  resulttype_column    <- tolower(params$resulttype_column) %||% "resulttype"
+  result_column        <- tolower(params$result_column) %||% "result"
+
+  df_result <- tryCatch({
+    ards_data <- ards_data %>% rename_all(tolower)
+
+    # in the filter query replace all variable with their lowercase versions
+    filter_query_masked <- str_replace_all(filter_query, "'[^']*'|\"[^\"]*\"", "__STRING__")
+    regex_pattern       <- '\\b[[:alnum:]_\\.]+(?=\\s*(==|!=|<=|>=|<|>|%IN%|%in%|%In%))'
+    vars <- str_extract_all(filter_query_masked, regex_pattern)[[1]]
+
+    for (v in unique(vars)) {
+      filter_query <- str_replace_all(filter_query,
+                                      paste0('\\b', v, '\\b(?=\\s*(==|!=|<=|>=|<|>|%IN%|%in%|%In%))'),
+                                      tolower(v))
+    }
+
+    if (!measure %in% unique(ards_data[[resulttype_column]][ards_data[[ref_column]]==""])) {
+      stop(sprintf("Measure %s not in [%s]\n",
+                   measure,
+                   paste(unique(ards_data[[resulttype_column]][ards_data[[ref_column]]==""]), collapse=', ')))
+    }
+
+    if (!all(c(difference_measure, difference_lci, difference_uci) %in% unique(ards_data[[resulttype_column]][ards_data[[ref_column]]!=""]))) {
+      stop(sprintf("Difference Measure (or CIs) not in [%s]\n",
+                   paste(unique(ards_data[[resulttype_column]][ards_data[[ref_column]]!=""]), collaspe=', ')))
+    }
+
+    filter_expr   <- rlang::parse_expr(filter_query)
+    general_query <- gsub(paste0(ref_column, "\s*==\s*['\"].+?['\"]"), 'TRUE', filter_query)
+    general_expr  <- rlang::parse_expr(sprintf("%s & %s==''", general_query, ref_column))
+
+    p1 <-
+      ards_data %>%
+      filter(!!general_expr) %>%
+      select_at(unique(c(trt_column, resulttype_column, result_column))) %>%
+      filter(.data[[resulttype_column]] %in% c(measure)) %>%
+      pivot_wider(id_cols=!!trt_column, names_from=!!resulttype_column, values_from=!!result_column) %>%
+      select_at(c(trt_column, measure)) %>%
+      mutate(
+        cmp_value = .data[[measure]][.data[[trt_column]]==cmp_name]
+      ) %>%
+      rename(
+        trt_name  := !!trt_column,
+        trt_value := !!measure
+      )
+
+    ards_data %>%
+      filter(!!filter_expr) %>%
+      filter(.data[[ref_column]]==!!cmp_name) %>%
+      select_at(unique(c(trt_column, resulttype_column, result_column))) %>%
+      filter(.data[[resulttype_column]] %in% c(difference_measure, difference_lci, difference_uci)) %>%
+      pivot_wider(id_cols=!!trt_column, names_from=!!resulttype_column, values_from=!!result_column) %>%
+      select_at(c(trt_column, difference_measure, difference_lci, difference_uci)) %>%
+      rename(
+        trt_name        := !!trt_column,
+        effect_estimate := !!difference_measure,
+        effect_lower_ci := !!difference_lci,
+        effect_upper_ci := !!difference_uci
+      ) %>%
+      left_join(p1) %>%
+      mutate(cmp_name=!!cmp_name) %>%
+      select(cmp_name, cmp_value, trt_name, trt_value, effect_estimate, effect_lower_ci, effect_upper_ci) %>%
+      filter(trt_name!=!!cmp_name)
+
+  }, error = function(e) {
+    return(list(is_valid = FALSE, message = paste("Error during data extraction/filtering:", e$message)))
+  })
+
+  if (!is.data.frame(df_result)) return(df_result)
+
+  # --- 4. Create Forest Plot ---
+  # Ensure numeric columns are numeric
+  df_result$effect_estimate <- as.numeric(df_result$effect_estimate)
+  df_result$effect_lower_ci <- as.numeric(df_result$effect_lower_ci)
+  df_result$effect_upper_ci <- as.numeric(df_result$effect_upper_ci)
+
+  # Remove rows with NA in essential columns
+  plot_data <- df_result[complete.cases(df_result[, c("trt_name", "effect_estimate", "effect_lower_ci", "effect_upper_ci")]), ]
+
+  if (nrow(plot_data) == 0) {
+      return(list(is_valid = FALSE, message = "No valid data available to plot after data extraction and cleaning."))
+  }
+
+  forest_plot <- ggplot(plot_data, aes(y = trt_name, x = effect_estimate)) +
+    geom_point(shape = 18, size = 3) +
+    geom_errorbarh(aes(xmin = effect_lower_ci, xmax = effect_upper_ci), height = 0.2) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+    labs(
+      title = "Forest Plot of Effects",
+      x = "Effect Estimate (95% CI)",
+      y = "Treatment"
+    ) +
+    theme_minimal()
+
+  # --- 5. Return Success ---
+  return(list(is_valid = TRUE, message = forest_plot))
+}
