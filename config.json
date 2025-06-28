@@ -71,8 +71,57 @@
     }
   ],
   "function_mapping": {
-    "br check": "modules/perform_ards_check.R",
-    "forest plot": "modules/plot_effect.R",
-    "volcano plot": "modules/volcano_plot.R"
+    "perform_ards_check": {
+      "path": "modules/perform_ards_check.R",
+      "label": "Perform ARDS Check",
+      "args": {
+        "required": ["filter"],
+        "optional": {
+          "measure": "NA",
+          "difference_measure": "NA",
+          "difference_lci": "NA",
+          "difference_uci": "NA",
+          "cmp_name": "Placebo",
+          "ref_column": "reftrt",
+          "trt_column": "trt",
+          "resulttype_column": "resulttype",
+          "result_column": "result"
+        }
+      }
+    },
+    "plot_effect": {
+      "path": "modules/plot_effect.R",
+      "label": "Plot Effect",
+      "args": {
+        "required": ["filter"],
+        "optional": {
+          "measure": "NA",
+          "difference_measure": "NA",
+          "difference_lci": "NA",
+          "difference_uci": "NA",
+          "cmp_name": "Placebo",
+          "ref_column": "reftrt",
+          "trt_column": "trt",
+          "resulttype_column": "resulttype",
+          "result_column": "result"
+        }
+      }
+    },
+    "volcano_plot": {
+      "path": "modules/volcano_plot.R",
+      "label": "Volcano Plot",
+      "args": {
+        "required": [
+          "filter",
+          "pt_column",
+          "trt_column",
+          "result_column",
+          "resulttype_column",
+          "pval_name",
+          "effect_name"
+        ],
+        "optional": {}
+      }
+    }
   }
 }

@@ -4,15 +4,11 @@
 # It must return a list with is_valid = TRUE/FALSE and a message.
 # The message on success will be a plotly object.
 
+source("modules/utils.R")
+
 volcano_plot <- function(path, params) {
 
   # --- 1. Parameter Validation ---
-  required_params <- c("filter", "pt_column", "trt_column", "result_column", "resulttype_column", "pval_name", "effect_name")
-  missing_params <- setdiff(required_params, names(params))
-  if (length(missing_params) > 0) {
-    return(list(is_valid = FALSE, message = paste("JSON is missing required keys:", paste(missing_params, collapse = ", "))))
-  }
-
   if (!file.exists(path)) {
     return(list(is_valid = FALSE, message = paste("Data file not found at:", path)))
   }
@@ -49,15 +45,7 @@ volcano_plot <- function(path, params) {
     }
 
     # in the filter query replace all variable with their lowercase versions
-    filter_query_masked <- str_replace_all(filter_query, "'[^']*'|\"[^\"]*\"", "__STRING__")
-    regex_pattern       <- '\\b[[:alnum:]_\\.]+(?=\\s*(==|!=|<=|>=|<|>|%IN%|%in%|%In%))'
-    vars <- str_extract_all(filter_query_masked, regex_pattern)[[1]]
-    
-    for (v in unique(vars)) {
-      filter_query <- str_replace_all(filter_query,
-                                      paste0('\\b', v, '\\b(?=\\s*(==|!=|<=|>=|<|>|%IN%|%in%|%In%))'),
-                                      tolower(v))
-    }
+    filter_query <- lowercase_query_vars(filter_query)
     
     # Apply filter
     filter_expr <- rlang::parse_expr(filter_query)
@@ -103,7 +91,7 @@ volcano_plot <- function(path, params) {
     data = df_result,
     x = ~effect,
     y = ~log_pval,
-    text = ~get(params$pt_column), # Use original case for hover text
+    text = ~get(pt_column), 
     hoverinfo = 'text',
     type = 'scatter',
     mode = 'markers',
