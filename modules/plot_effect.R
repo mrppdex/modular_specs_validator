@@ -4,6 +4,8 @@
 # It must return a list with is_valid = TRUE/FALSE and a message.
 # The message on success will be a ggplot object.
 
+source("modules/utils.R")
+
 plot_effect <- function(path, params) {
 
   # --- 1. File and Parameter Validation ---
@@ -43,16 +45,7 @@ plot_effect <- function(path, params) {
   df_result <- tryCatch({
     ards_data <- ards_data %>% rename_all(tolower)
     
-    # in the filter query replace all variable with their lowercase versions
-    filter_query_masked <- str_replace_all(filter_query, "'[^']*'|\"[^\"]*\"", "__STRING__")
-    regex_pattern       <- '\\b[[:alnum:]_\\.]+(?=\\s*(==|!=|<=|>=|<|>|%IN%|%in%|%In%))'
-    vars <- str_extract_all(filter_query_masked, regex_pattern)[[1]]
-    
-    for (v in unique(vars)) {
-      filter_query <- str_replace_all(filter_query,
-                                      paste0('\\b', v, '\\b(?=\\s*(==|!=|<=|>=|<|>|%IN%|%in%|%In%))'),
-                                      tolower(v))
-    }
+    filter_query <- lowercase_query_vars(filter_query)
     
     if (!measure %in% unique(ards_data[[resulttype_column]][ards_data[[ref_column]]==""])) {
       stop(sprintf("Measure %s not in [%s]\n", 
