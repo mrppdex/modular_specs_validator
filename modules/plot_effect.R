@@ -4,6 +4,8 @@
 # It must return a list with is_valid = TRUE/FALSE and a message.
 # The message on success will be a ggplot object.
 
+source("modules/utils.R")
+
 plot_effect <- function(path, params) {
 
   # --- 1. File and Parameter Validation ---
@@ -29,30 +31,21 @@ plot_effect <- function(path, params) {
   # --- 3. Business Logic (Data Extraction from perform_ards_check) ---
 
   # Extract params from JSON, providing defaults
-  filter_query         <- params$filter %||% "TRUE"
-  measure              <- params$measure %||% NA
-  difference_measure   <- params$difference_measure %||% NA
-  difference_lci       <- params$difference_lci %||% NA
-  difference_uci       <- params$difference_uci %||% NA
-  cmp_name             <- params$cmp_name %||% "Placebo"
-  ref_column           <- tolower(params$ref_column) %||% "reftrt"
-  trt_column           <- tolower(params$trt_column) %||% "trt"
-  resulttype_column    <- tolower(params$resulttype_column) %||% "resulttype"
-  result_column        <- tolower(params$result_column) %||% "result"
+  filter_query         <- params$filter
+  measure              <- params$measure
+  difference_measure   <- params$difference_measure
+  difference_lci       <- params$difference_lci
+  difference_uci       <- params$difference_uci
+  cmp_name             <- params$cmp_name
+  ref_column           <- tolower(params$ref_column)
+  trt_column           <- tolower(params$trt_column)
+  resulttype_column    <- tolower(params$resulttype_column)
+  result_column        <- tolower(params$result_column)
 
   df_result <- tryCatch({
     ards_data <- ards_data %>% rename_all(tolower)
     
-    # in the filter query replace all variable with their lowercase versions
-    filter_query_masked <- str_replace_all(filter_query, "'[^']*'|\"[^\"]*\"", "__STRING__")
-    regex_pattern       <- '\\b[[:alnum:]_\\.]+(?=\\s*(==|!=|<=|>=|<|>|%IN%|%in%|%In%))'
-    vars <- str_extract_all(filter_query_masked, regex_pattern)[[1]]
-    
-    for (v in unique(vars)) {
-      filter_query <- str_replace_all(filter_query,
-                                      paste0('\\b', v, '\\b(?=\\s*(==|!=|<=|>=|<|>|%IN%|%in%|%In%))'),
-                                      tolower(v))
-    }
+    filter_query <- lowercase_query_vars(filter_query)
     
     if (!measure %in% unique(ards_data[[resulttype_column]][ards_data[[ref_column]]==""])) {
       stop(sprintf("Measure %s not in [%s]\n", 
@@ -65,8 +58,8 @@ plot_effect <- function(path, params) {
                    paste(unique(ards_data[[resulttype_column]][ards_data[[ref_column]]!=""]), collaspe=', ')))
     }
     
-    filter_expr   <- rlang::parse_expr(filter_query)
-    general_query <- gsub(paste0(ref_column, "\\s*==\\s*['\"].+?['\"]"), 'TRUE', filter_query)
+    general_query <- gsub(paste0(ref_column, "\\s*==\\s*['\"].*?['\"]"), 'TRUE', filter_query)
+    filter_expr   <- rlang::parse_expr(sprintf("%s & %s==\'%s\'", general_query, ref_column, cmp_name))
     general_expr  <- rlang::parse_expr(sprintf("%s & %s==''", general_query, ref_column))
     
     p1 <-
@@ -76,11 +69,11 @@ plot_effect <- function(path, params) {
       filter(.data[[resulttype_column]] %in% c(measure)) %>%
       pivot_wider(id_cols=!!trt_column, names_from=!!resulttype_column, values_from=!!result_column) %>%
       select_at(c(trt_column, measure)) %>%
-      rename(
-        trt_value := !!measure
-      ) %>%
       mutate(
         cmp_value = .data[[measure]][.data[[trt_column]]==cmp_name]
+      ) %>%
+      rename(
+        trt_value := !!measure
       ) 
     
     ards_data %>%

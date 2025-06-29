@@ -3,9 +3,7 @@
 # It must accept 'path' and 'params' (the parsed JSON) as arguments.
 # It must return a list with is_valid = TRUE/FALSE and a message.
 
-
-
-
+source("modules/utils.R")
 
 perform_ards_check <- function(path, params) {
   
@@ -32,30 +30,21 @@ perform_ards_check <- function(path, params) {
   # --- 3. Business Logic ---
   
   # Extract params from JSON, providing defaults
-  filter_query         <- params$filter %||% "TRUE"
-  measure              <- params$measure %||% NA            # result type literal used to show treatment value
-  difference_measure   <- params$difference_measure %||% NA # result type literal used to show treatment-comparator effect
-  difference_lci       <- params$difference_lci %||% NA     # result type literal used to show treatment-comparator effect lower CI
-  difference_uci       <- params$difference_uci %||% NA     # result type literal used to show treatment-comparator effect upper CI
-  cmp_name             <- params$cmp_name %||% "Placebo"    # comparator name in reference treatment column
-  ref_column           <- tolower(params$ref_column) %||% "reftrt" # name of the reference column
-  trt_column           <- tolower(params$trt_column) %||% "trt"    # name of the treatment column
-  resulttype_column    <- tolower(params$resulttype_column) %||% "resulttype" # name of the result type column
-  result_column        <- tolower(params$result_column) %||% "result"         # name of the result column
+  filter_query         <- params$filter
+  measure              <- params$measure
+  difference_measure   <- params$difference_measure
+  difference_lci       <- params$difference_lci
+  difference_uci       <- params$difference_uci
+  cmp_name             <- params$cmp_name
+  ref_column           <- tolower(params$ref_column)
+  trt_column           <- tolower(params$trt_column)
+  resulttype_column    <- tolower(params$resulttype_column)
+  result_column        <- tolower(params$result_column)
   
   df_result <- tryCatch({
     ards_data <- ards_data %>% rename_all(tolower)
     
-    # in the filter query replace all variable with their lowercase versions
-    filter_query_masked <- str_replace_all(filter_query, "'[^']*'|\"[^\"]*\"", "__STRING__")
-    regex_pattern       <- '\\b[[:alnum:]_\\.]+(?=\\s*(==|!=|<=|>=|<|>|%IN%|%in%|%In%))'
-    vars <- str_extract_all(filter_query_masked, regex_pattern)[[1]]
-    
-    for (v in unique(vars)) {
-      filter_query <- str_replace_all(filter_query,
-                                      paste0('\\b', v, '\\b(?=\\s*(==|!=|<=|>=|<|>|%IN%|%in%|%In%))'),
-                                      tolower(v))
-    }
+    filter_query <- lowercase_query_vars(filter_query)
     
     if (!measure %in% unique(ards_data[[resulttype_column]][ards_data[[ref_column]]==""])) {
       stop(sprintf("Measure %s not in [%s]\n", 
@@ -68,8 +57,8 @@ perform_ards_check <- function(path, params) {
                    paste(unique(ards_data[[resulttype_column]][ards_data[[ref_column]]!=""]), collaspe=', ')))
     }
     
-    filter_expr   <- rlang::parse_expr(filter_query)
-    general_query <- gsub(paste0(ref_column, "\\s*==\\s*['\"].+?['\"]"), 'TRUE', filter_query)
+    general_query <- gsub(paste0(ref_column, "\\s*==\\s*['\"].*?['\"]"), 'TRUE', filter_query)
+    filter_expr   <- rlang::parse_expr(sprintf("%s & %s==\'%s\'", general_query, ref_column, cmp_name))
     general_expr  <- rlang::parse_expr(sprintf("%s & %s==''", general_query, ref_column))
     
     p1 <-
@@ -78,12 +67,12 @@ perform_ards_check <- function(path, params) {
       select_at(unique(c(trt_column, resulttype_column, result_column))) %>%
       filter(.data[[resulttype_column]] %in% c(measure)) %>%
       pivot_wider(id_cols=!!trt_column, names_from=!!resulttype_column, values_from=!!result_column) %>%
-      select_at(c(trt_column, measure)) %>%
-      rename(
-        trt_value := !!measure
-      ) %>%
+      select_at(c(trt_column, measure))  %>%
       mutate(
         cmp_value = .data[[measure]][.data[[trt_column]]==cmp_name]
+      ) %>% 
+      rename(
+        trt_value := !!measure
       ) 
     
     ards_data %>%

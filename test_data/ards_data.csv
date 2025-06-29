@@ -1,0 +1,6 @@
+reftrt,trt,resulttype,result
+,Placebo,mean,10
+,Treatment,mean,12
+Placebo,Treatment,diff,2
+Placebo,Treatment,lci,1.5
+Placebo,Treatment,uci,2.5
