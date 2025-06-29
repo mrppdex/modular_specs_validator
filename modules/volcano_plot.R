@@ -8,7 +8,6 @@ source("modules/utils.R")
 
 volcano_plot <- function(path, params) {
 
-  # --- 1. Parameter Validation ---
   if (!file.exists(path)) {
     return(list(is_valid = FALSE, message = paste("Data file not found at:", path)))
   }
