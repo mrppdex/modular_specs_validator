@@ -1,21 +1,22 @@
-# This is an example validation module.
+# This module creates a forest plot from a given dataset.
 # The function name must match the name specified in your JSON filter and config.json.
 # It must accept 'path' and 'params' (the parsed JSON) as arguments.
 # It must return a list with is_valid = TRUE/FALSE and a message.
+# The message on success will be a ggplot object.
 
 source("modules/utils.R")
 
-perform_ards_check <- function(path, params) {
-  
+plot_effect <- function(path, params) {
+
   # --- 1. File and Parameter Validation ---
   if (is.null(params$filter)) {
     return(list(is_valid = FALSE, message = "JSON is missing the required 'filter' key."))
   }
-  
+
   if (!file.exists(path)) {
     return(list(is_valid = FALSE, message = paste("Data file not found at:", path)))
   }
-  
+
   # --- 2. Data Loading ---
   ards_data <- tryCatch({
     ext <- tools::file_ext(path)
@@ -26,9 +27,9 @@ perform_ards_check <- function(path, params) {
     return(list(is_valid = FALSE, message = paste("Error reading data file:", e$message)))
   })
   if (!is.data.frame(ards_data)) return(ards_data)
-  
-  # --- 3. Business Logic ---
-  
+
+  # --- 3. Business Logic (Data Extraction from perform_ards_check) ---
+
   # Extract params from JSON, providing defaults
   filter_query         <- params$filter
   measure              <- params$measure
@@ -40,7 +41,7 @@ perform_ards_check <- function(path, params) {
   trt_column           <- tolower(params$trt_column)
   resulttype_column    <- tolower(params$resulttype_column)
   result_column        <- tolower(params$result_column)
-  
+
   df_result <- tryCatch({
     ards_data <- ards_data %>% rename_all(tolower)
     
@@ -67,10 +68,10 @@ perform_ards_check <- function(path, params) {
       select_at(unique(c(trt_column, resulttype_column, result_column))) %>%
       filter(.data[[resulttype_column]] %in% c(measure)) %>%
       pivot_wider(id_cols=!!trt_column, names_from=!!resulttype_column, values_from=!!result_column) %>%
-      select_at(c(trt_column, measure))  %>%
+      select_at(c(trt_column, measure)) %>%
       mutate(
         cmp_value = .data[[measure]][.data[[trt_column]]==cmp_name]
-      ) %>% 
+      ) %>%
       rename(
         trt_value := !!measure
       ) 
@@ -96,11 +97,33 @@ perform_ards_check <- function(path, params) {
   }, error = function(e) {
     return(list(is_valid = FALSE, message = paste("Error during data extraction/filtering:", e$message)))
   })
-  
+
   if (!is.data.frame(df_result)) return(df_result)
-  
-  # --- 4. Return Success ---
-  # On success, is_valid is TRUE and the message is the resulting dataframe.
-  # The main app will format this dataframe for the tooltip.
-  return(list(is_valid = TRUE, message = df_result))
+
+  # --- 4. Create Forest Plot ---
+  # Ensure numeric columns are numeric
+  df_result$effect_estimate <- as.numeric(df_result$effect_estimate)
+  df_result$effect_lower_ci <- as.numeric(df_result$effect_lower_ci)
+  df_result$effect_upper_ci <- as.numeric(df_result$effect_upper_ci)
+
+  # Remove rows with NA in essential columns
+  plot_data <- df_result[complete.cases(df_result[, c("trt_name", "effect_estimate", "effect_lower_ci", "effect_upper_ci")]), ]
+
+  if (nrow(plot_data) == 0) {
+      return(list(is_valid = FALSE, message = "No valid data available to plot after data extraction and cleaning."))
+  }
+
+  forest_plot <- ggplot(plot_data, aes(y = trt_name, x = effect_estimate)) +
+    geom_point(shape = 18, size = 3) +
+    geom_errorbarh(aes(xmin = effect_lower_ci, xmax = effect_upper_ci), height = 0.2) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+    labs(
+      title = "Forest Plot of Effects",
+      x = "Effect Estimate (95% CI)",
+      y = "Treatment"
+    ) +
+    theme_minimal()
+
+  # --- 5. Return Success ---
+  return(list(is_valid = TRUE, message = forest_plot))
 }
