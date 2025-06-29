@@ -310,15 +310,23 @@ server <- function(input, output, session) {
               }
               
               function_name <- json_params$validation_module
-              if(is.null(function_name) || !function_name %in% names(config$function_mapping)) {
-                let_msg <- paste("Module", function_name, "not defined in config.json.")
+              if(is.null(function_name) || !function_name %in% names(config$function_mapping) || function_name != rule$Name) {
+                next
+              }
+              
+              function_config <- config$function_mapping[[function_name]]
+              
+              required_args <- function_config$args$required
+              missing_args <- setdiff(required_args, names(json_params))
+              if (length(missing_args) > 0) {
+                let_msg <- paste("JSON is missing required keys:", paste(missing_args, collapse = ", "))
                 error_matrix[row_idx, filter_col_idx] <- append_msg(error_matrix[row_idx, filter_col_idx], let_msg)
                 popover_content_matrix[row_idx, filter_col_idx] <- append_msg(popover_content_matrix[row_idx, filter_col_idx], let_msg)
                 popover_title_matrix[row_idx, filter_col_idx] <- append_msg(popover_title_matrix[row_idx, filter_col_idx], "Configuration Error")
                 next
               }
               
-              module_path <- config$function_mapping[[function_name]]
+              module_path <- function_config$path
               if(!file.exists(module_path)) {
                 let_msg <- paste("Module file not found:", module_path)
                 error_matrix[row_idx, filter_col_idx] <- append_msg(error_matrix[row_idx, filter_col_idx], let_msg)
@@ -354,7 +362,7 @@ server <- function(input, output, session) {
                 popover_content_matrix[row_idx, filter_col_idx] <- append_msg(popover_content_matrix[row_idx, filter_col_idx], wrapper_div)
                 popover_title_matrix[row_idx, filter_col_idx] <- append_msg(popover_title_matrix[row_idx, filter_col_idx], "Plot Visualization")
                 render_matrix[row_idx, filter_col_idx] <- as.character(tags$button(
-                  type = "button", class = "btn btn-sm btn-info py-0", "Show Plot"
+                  type = "button", class = "btn btn-sm btn-info py-0", function_config$label
                 ))
 
               } else if (inherits(validation_output$message, "ggplot")) {
@@ -369,7 +377,7 @@ server <- function(input, output, session) {
                   popover_content_matrix[row_idx, filter_col_idx] <- append_msg(popover_content_matrix[row_idx, filter_col_idx], wrapper_div)
                   popover_title_matrix[row_idx, filter_col_idx] <- append_msg(popover_title_matrix[row_idx, filter_col_idx], "Plot Visualization")
                   render_matrix[row_idx, filter_col_idx] <- as.character(tags$button(
-                    type = "button", class = "btn btn-sm btn-info py-0", "Show Plot"
+                    type = "button", class = "btn btn-sm btn-info py-0", function_config$label
                   ))
                 }, error = function(e) {
                   err_msg <- paste("Failed to render ggplot:", e$message)
@@ -382,7 +390,7 @@ server <- function(input, output, session) {
                 popover_content_matrix[row_idx, filter_col_idx] <- append_msg(popover_content_matrix[row_idx, filter_col_idx], wrapper_div)
                 popover_title_matrix[row_idx, filter_col_idx] <- append_msg(popover_title_matrix[row_idx, filter_col_idx], "Data Check Result")
                 render_matrix[row_idx, filter_col_idx] <- as.character(tags$button(
-                  type = "button", class = "btn btn-sm btn-success py-0", "Show Data Frame"
+                  type = "button", class = "btn btn-sm btn-success py-0", function_config$label
                 ))
               } else if (is.character(validation_output$message) && !is.na(validation_output$message) && validation_output$message != "") {
                 popover_content_matrix[row_idx, filter_col_idx] <- append_msg(popover_content_matrix[row_idx, filter_col_idx], validation_output$message)
