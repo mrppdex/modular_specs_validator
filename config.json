@@ -72,8 +72,9 @@
   ],
   "function_mapping": {
     "perform_ards_check": {
+      "id": "ards_check",
       "path": "modules/perform_ards_check.R",
-      "label": "Perform ARDS Check",
+      "label": "BR data",
       "args": {
         "required": ["filter"],
         "optional": {
@@ -90,15 +91,12 @@
       }
     },
     "plot_effect": {
+      "id": "forrest_plot",
       "path": "modules/plot_effect.R",
-      "label": "Plot Effect",
+      "label": "Forrest Plot",
       "args": {
-        "required": ["filter"],
+        "required": ["filter", "measure","difference_measure", "difference_lci","difference_uci"],
         "optional": {
-          "measure": "NA",
-          "difference_measure": "NA",
-          "difference_lci": "NA",
-          "difference_uci": "NA",
           "cmp_name": "Placebo",
           "ref_column": "reftrt",
           "trt_column": "trt",
@@ -108,6 +106,7 @@
       }
     },
     "volcano_plot": {
+      "id": "volcano_plot",
       "path": "modules/volcano_plot.R",
       "label": "Volcano Plot",
       "args": {
