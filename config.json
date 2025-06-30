@@ -76,12 +76,8 @@
       "path": "modules/perform_ards_check.R",
       "label": "BR data",
       "args": {
-        "required": ["filter"],
+        "required": ["filter", "measure","difference_measure", "difference_lci","difference_uci"],
         "optional": {
-          "measure": "NA",
-          "difference_measure": "NA",
-          "difference_lci": "NA",
-          "difference_uci": "NA",
           "cmp_name": "Placebo",
           "ref_column": "reftrt",
           "trt_column": "trt",
@@ -114,12 +110,16 @@
           "filter",
           "pt_column",
           "trt_column",
-          "result_column",
-          "resulttype_column",
           "pval_name",
           "effect_name"
         ],
-        "optional": {}
+        "optional": {
+          "trt_column": "trt",
+          "reftrt_column": "reftrt",
+          "result_column": "result",
+          "resulttype_column": "resulttype",
+          "cmp_name": "Placebo"
+        }
       }
     }
   }
