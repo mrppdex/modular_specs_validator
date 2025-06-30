@@ -225,7 +225,7 @@ server <- function(input, output, session) {
         colnames(error_matrix) <- colnames(popover_content_matrix) <- colnames(popover_title_matrix) <- colnames(data_sheet)
         
         append_msg <- function(existing_msg, new_msg) {
-          if (is.na(existing_msg)) return(new_msg) else paste(existing_msg, new_msg, sep = " | ")
+          if (is.na(existing_msg)) return(new_msg) else paste(new_msg, sep = " | ")
         }
         
         get_param <- function(params_str, p_name) {
@@ -310,11 +310,33 @@ server <- function(input, output, session) {
               }
               
               function_name <- json_params$validation_module
-              if(is.null(function_name) || !function_name %in% names(config$function_mapping) || function_name != rule$Name) {
+              if(is.null(function_name)) {
                 next
               }
               
-              function_config <- config$function_mapping[[function_name]]
+              # Find the function configuration by its ID
+              function_config <- NULL
+              for (key in names(config$function_mapping)) {
+                if (config$function_mapping[[key]]$id == function_name) {
+                  function_config <- config$function_mapping[[key]]
+                  function_config$function_name <- key
+                  break
+                }
+              }
+              
+              if(is.null(function_config)) {
+                next
+              }
+              
+              # Add default values for optional parameters
+              optional_args <- function_config$args$optional
+              if (!is.null(optional_args)) {
+                for (arg_name in names(optional_args)) {
+                  if (is.null(json_params[[arg_name]])) {
+                    json_params[[arg_name]] <- optional_args[[arg_name]]
+                  }
+                }
+              }
               
               required_args <- function_config$args$required
               missing_args <- setdiff(required_args, names(json_params))
@@ -338,15 +360,15 @@ server <- function(input, output, session) {
               module_env <- new.env()
               source(module_path, local = module_env)
               
-              if(!exists(function_name, envir = module_env)) {
-                let_msg <- paste("Function", function_name, "not found in module", module_path)
+              if(!exists(function_config$function_name, envir = module_env)) {
+                let_msg <- paste("Function", function_config$function_name, "not found in module", module_path)
                 error_matrix[row_idx, filter_col_idx] <- append_msg(error_matrix[row_idx, filter_col_idx], let_msg)
                 popover_content_matrix[row_idx, filter_col_idx] <- append_msg(popover_content_matrix[row_idx, filter_col_idx], let_msg)
                 popover_title_matrix[row_idx, filter_col_idx] <- append_msg(popover_title_matrix[row_idx, filter_col_idx], "Configuration Error")
                 next
               }
               
-              validation_func <- module_env[[function_name]]
+              validation_func <- module_env[[function_config$function_name]]
               validation_output <- validation_func(path_value, json_params)
               
               # --- MODIFIED: Handle plots, data frames, and text ---
