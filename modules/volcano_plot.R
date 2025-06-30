@@ -27,7 +27,7 @@ volcano_plot <- function(path, params) {
   filter_query      <- params$filter
   pt_column         <- tolower(params$pt_column)
   trt_column        <- tolower(params$trt_column)
-  reftrt_colum      <- tolower(params$reftrt_column)
+  reftrt_column     <- tolower(params$reftrt_column)
   result_column     <- tolower(params$result_column)
   resulttype_column <- tolower(params$resulttype_column)
   cmp_name          <- params$cmp_name
