@@ -72,7 +72,7 @@
   ],
   "function_mapping": {
     "perform_ards_check": {
-      "id": "ards_check",
+      "id": "perform_ards_check",
       "path": "modules/perform_ards_check.R",
       "label": "BR data",
       "args": {
@@ -91,7 +91,7 @@
       }
     },
     "plot_effect": {
-      "id": "forrest_plot",
+      "id": "plot_effect",
       "path": "modules/plot_effect.R",
       "label": "Forrest Plot",
       "args": {
