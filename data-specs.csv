@@ -1,0 +1,14 @@
+Name,Type,Values
+Include,Categorical,"Values=Y,N"
+Effect_Type,Categorical,"Values=Benefit,Risk"
+Variable_Type,Text,NA
+Study_or_Integration,Categorical,Values=GZGP
+Timepoint,Categorical,Values=Week 72
+Cmp_Name,Categorical,Values=placebo
+Trt_Name,Categorical,Values=OFG
+Improvement_Direction,Categorical,"Values=increase,decrease"
+Source_Path,File Path,NA
+ARDS_Path,File Path,NA
+Estimand,Categorical,"Values=Efficacy,Safety"
+BR_data_check,DataCheck,path_col=ARDS_Path;filter_col=ARDS_condition
+Description,Text,NA
