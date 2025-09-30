@@ -31,11 +31,13 @@ volcano_plot <- function(path, params) {
     filter_query      <- params$filter
     pt_column         <- tolower(params$pt_column)
     trt_column        <- tolower(params$trt_column)
+    reftrt_column     <- tolower(params$reftrt_column)
     result_column     <- tolower(params$result_column)
     resulttype_column <- tolower(params$resulttype_column)
+    cmp_name          <- params$cmp_name
     pval_name         <- params$pval_name
     effect_name       <- params$effect_name
-
+    
     # Check if columns exist
     required_cols <- c(pt_column, trt_column, result_column, resulttype_column)
     missing_cols <- setdiff(required_cols, colnames(data))
@@ -51,7 +53,13 @@ volcano_plot <- function(path, params) {
     filtered_data <- data %>% filter(!!filter_expr)
 
     # Pivot data to get effect and p-value in columns
-    plot_data <- filtered_data %>% 
+    plot_data <- 
+      filtered_data %>%
+      mutate(
+        .swap_flag = .data[[trt_column]]==cmp_name,
+        "{trt_column}" := if_else(.swap_flag, .data[[reftrt_column]], .data[[trt_column]]),
+        "{reftrt_column}" := !!cmp_name
+      ) %>%
       filter(.data[[resulttype_column]] %in% c(effect_name, pval_name)) %>%
       pivot_wider(
         id_cols = c(!!pt_column, !!trt_column),
@@ -90,17 +98,36 @@ volcano_plot <- function(path, params) {
     data = df_result,
     x = ~effect,
     y = ~log_pval,
+    color = ~trt,
     text = ~get(pt_column), 
     hoverinfo = 'text',
     type = 'scatter',
     mode = 'markers',
     marker = list(size = 5, opacity = 0.5)
   ) %>%
-  layout(
-    title = "Volcano Plot",
-    xaxis = list(title = "Effect Size"),
-    yaxis = list(title = "-log10(p-value)")
-  )
+    layout(
+      title = "Volcano Plot",
+      xaxis = list(title = "Effect Size"),
+      yaxis = list(title = "-log10(p-value)"),
+      shapes = list(
+        list(
+          type  = "line",
+          x0    = 0, x1 = 1,
+          xref  = "paper",
+          y0    = -log10(0.05), y1 = -log10(0.05),
+          line  = list(color = "red", dash = "dash", width = 0.7)
+        )
+      ),
+      annotations = list(
+        list(
+          x    = 0.13,
+          y    = -log10(0.05),
+          xref = "paper",
+          text = "0.05",
+          font = list(color = "red")
+        )
+      )
+    )
 
 
   # --- 5. Return Success ---

@@ -72,16 +72,12 @@
   ],
   "function_mapping": {
     "perform_ards_check": {
-      "id": "ards_check",
+      "id": "perform_ards_check",
       "path": "modules/perform_ards_check.R",
       "label": "BR data",
       "args": {
-        "required": ["filter"],
+        "required": ["filter", "measure", "difference_measure", "difference_lci", "difference_uci"],
         "optional": {
-          "measure": "NA",
-          "difference_measure": "NA",
-          "difference_lci": "NA",
-          "difference_uci": "NA",
           "cmp_name": "Placebo",
           "ref_column": "reftrt",
           "trt_column": "trt",
@@ -91,9 +87,9 @@
       }
     },
     "plot_effect": {
-      "id": "forrest_plot",
+      "id": "plot_effect",
       "path": "modules/plot_effect.R",
-      "label": "Forrest Plot",
+      "label": "Forest Plot",
       "args": {
         "required": ["filter", "measure","difference_measure", "difference_lci","difference_uci"],
         "optional": {
@@ -113,13 +109,29 @@
         "required": [
           "filter",
           "pt_column",
-          "trt_column",
-          "result_column",
-          "resulttype_column",
           "pval_name",
           "effect_name"
         ],
-        "optional": {}
+        "optional": {
+          "trt_column": "trt",
+          "reftrt_column": "reftrt",
+          "result_column": "result",
+          "resulttype_column": "resulttype",
+          "cmp_name": "Placebo"
+        }
+      }
+    },
+    "mock_shell": {
+      "id": "mock_shell",
+      "path": "modules/mock_shell.R",
+      "label": "Mock Shell",
+      "args": {
+        "required": [],
+        "optional": {
+          "header_specs": "NULL",
+          "title": "NULL",
+          "footnote": "NULL"
+        }
       }
     }
   }

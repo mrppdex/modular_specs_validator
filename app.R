@@ -30,6 +30,7 @@ library(rmarkdown) # For document previews
 library(ggplot2)   # For ggplot visualizations
 library(plotly)    # For plotly visualizations
 library(htmlwidgets) # For saving widgets to HTML
+library(rtfmt) # For mock shells
 
 # --- Load Configuration at Startup ---
 config <- try(fromJSON("config.json", simplifyDataFrame = FALSE), silent = TRUE)
@@ -414,8 +415,32 @@ server <- function(input, output, session) {
                 render_matrix[row_idx, filter_col_idx] <- as.character(tags$button(
                   type = "button", class = "btn btn-sm btn-success py-0", function_config$label
                 ))
+              } else if (!is.null(attr(validation_output$message, "type")) && attr(validation_output$message, "type")=="rtfmt") {
+                wrapper_div <- as.character(tags$div(style = paste(
+                  "min-width: 1200px;",
+                  "max-height: 400px;",
+                  "overflow: auto;",
+                  "background-color: white; color: black;",
+                  "white-space: pre-wrap;", 
+                  "font-size: 10px;"
+                ),
+                HTML(validation_output$message)))
+                popover_content_matrix[row_idx, filter_col_idx] <- append_msg(popover_content_matrix[row_idx, filter_col_idx], wrapper_div)
+                popover_title_matrix[row_idx, filter_col_idx] <- append_msg(popover_title_matrix[row_idx, filter_col_idx], "Validation Info")
+                render_matrix[row_idx, filter_col_idx] <- as.character(tags$button(
+                  type = "button", class = "btn btn-sm btn-success py-0", function_config$label
+                ))
               } else if (is.character(validation_output$message) && !is.na(validation_output$message) && validation_output$message != "") {
-                popover_content_matrix[row_idx, filter_col_idx] <- append_msg(popover_content_matrix[row_idx, filter_col_idx], validation_output$message)
+                wrapper_div <- as.character(tags$div(style = paste(
+                  "min-width: 800px;",
+                  "max-height: 400px;",
+                  "overflow: auto;",
+                  "background-color: white; color: black;",
+                  "white-space: pre-wrap;", 
+                  "font-size: 10px;"
+                ),
+                HTML(validation_output$message)))
+                popover_content_matrix[row_idx, filter_col_idx] <- append_msg(popover_content_matrix[row_idx, filter_col_idx], wrapper_div)
                 popover_title_matrix[row_idx, filter_col_idx] <- append_msg(popover_title_matrix[row_idx, filter_col_idx], "Validation Info")
               }
               

@@ -55,7 +55,7 @@ plot_effect <- function(path, params) {
     
     if (!all(c(difference_measure, difference_lci, difference_uci) %in% unique(ards_data[[resulttype_column]][ards_data[[ref_column]]!=""]))) {
       stop(sprintf("Difference Measure (or CIs) not in [%s]\n",
-                   paste(unique(ards_data[[resulttype_column]][ards_data[[ref_column]]!=""]), collaspe=', ')))
+                   paste(unique(ards_data[[resulttype_column]][ards_data[[ref_column]]!=""]), collapse=', ')))
     }
     
     general_query <- gsub(paste0(ref_column, "\\s*==\\s*['\"].*?['\"]"), 'TRUE', filter_query)

@@ -1,7 +1,7 @@
-PT,TRT,Result,ResultType
-Headache,Treatment,1.2,Effect
-Headache,Treatment,0.04,PValue
-Nausea,Treatment,0.8,Effect
-Nausea,Treatment,0.1,PValue
-Fatigue,Treatment,-0.5,Effect
-Fatigue,Treatment,0.3,PValue
+PT,TRT,PBO,Result,ResultType
+Headache,Treatment,Placebo,1.2,Effect
+Headache,Treatment,Placebo,0.04,PValue
+Nausea,Treatment,Placebo,0.8,Effect
+Nausea,Treatment,Placebo,0.1,PValue
+Fatigue,Treatment,Placebo,-0.5,Effect
+Fatigue,Treatment,Placebo,0.3,PValue
