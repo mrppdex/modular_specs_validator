@@ -19,6 +19,25 @@ perform_check_template <- function(path, params) {
     return(list(is_valid = FALSE, message = "JSON is missing the required 'filter' key."))
   }
   
+  # Check if columns exist
+  required_cols <- c(pt_column, trt_column, result_column, resulttype_column)
+  missing_cols <- setdiff(required_cols, colnames(data))
+  if (length(missing_cols) > 0) {
+    stop(paste("The following columns are missing from the data:", paste(missing_cols, collapse = ", ")))
+  }
+  
+  # NOTE: uncomment if you want to convert all variable names in the query to lower cases
+  # # in the filter query replace all variable with their lowercase versions
+  # filter_query_masked <- str_replace_all(filter_query, "'[^']*'|\"[^\"]*\"", "__STRING__")
+  # regex_pattern       <- '\\b[[:alnum:]_\\.]+(?=\\s*(==|!=|<=|>=|<|>|%IN%|%in%|%In%))'
+  # vars <- str_extract_all(filter_query_masked, regex_pattern)[[1]]
+  # 
+  # for (v in unique(vars)) {
+  #   filter_query <- str_replace_all(filter_query,
+  #                                   paste0('\\b', v, '\\b(?=\\s*(==|!=|<=|>=|<|>|%IN%|%in%|%In%))'),
+  #                                   tolower(v))
+  # }
+  
   # Check if the data file exists.
   if (!file.exists(path)) {
     return(list(is_valid = FALSE, message = paste("Data file not found at:", path)))

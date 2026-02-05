@@ -1,0 +1,4 @@
+Name,Type,Values
+"perform_ards_check","DataCheck","path_col=Path;filter_col=Filter"
+"plot_effect","DataCheck","path_col=Path;filter_col=Filter"
+"volcano_plot","DataCheck","path_col=Path;filter_col=Filter"
